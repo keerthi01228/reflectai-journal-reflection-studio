@@ -1,0 +1,6 @@
+{
+  "name": "ReflectAI - Journal & Reflection Studio",
+  "description": "User-authenticated multi-turn reflective journaling and brainstorming studio with Google Sign-In, Gemini 3.6 Flash synthesis, and isolated Cloud Firestore persistence.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
