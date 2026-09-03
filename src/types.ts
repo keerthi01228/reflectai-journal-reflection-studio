@@ -17,6 +17,10 @@ export interface JournalEntry {
   summary?: string;
   tags: string[];
   mood?: string;
+  classifierRationale?: string;
+  classificationStatus?: 'pending' | 'complete' | 'failed';
+  userEntry?: string;
+  reflectorOutput?: string;
   createdAt: string;
   updatedAt: string;
 }

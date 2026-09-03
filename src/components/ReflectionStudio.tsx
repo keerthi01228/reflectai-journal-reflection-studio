@@ -35,6 +35,7 @@ export const ReflectionStudio: React.FC<Props> = ({
 }) => {
   const [inputText, setInputText] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isClassifying, setIsClassifying] = useState(false);
   const [isSummarizing, setIsSummarizing] = useState(false);
   const [apiError, setApiError] = useState<string | null>(null);
   const [prompts, setPrompts] = useState<string[]>([
@@ -163,14 +164,58 @@ export const ReflectionStudio: React.FC<Props> = ({
       const finalEntry: JournalEntry = {
         ...nextEntry,
         messages: [...updatedMessages, geminiMessage],
+        userEntry: userMessageText,
+        reflectorOutput: result.reflection,
+        classificationStatus: "pending",
         updatedAt: new Date().toISOString(),
       };
 
       onUpdateEntry(finalEntry);
       setInputText("");
 
-      // Guaranteed Persistence to Firestore
+      // Guaranteed Persistence of reflection to Firestore (Source of Truth)
       await onSaveEntry(finalEntry);
+
+      // Multi-Agent Pipeline: Immediately invoke Agent 2 (Critic/Classifier)
+      setIsClassifying(true);
+      try {
+        const classifyResponse = await fetch("/api/gemini/classify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            userEntry: userMessageText,
+            reflectorOutput: result.reflection,
+          }),
+        });
+
+        const classifyResult = await classifyResponse.json();
+
+        if (classifyResponse.ok && classifyResult.success && classifyResult.mood) {
+          const classifiedEntry: JournalEntry = {
+            ...finalEntry,
+            mood: classifyResult.mood,
+            classifierRationale: classifyResult.rationale,
+            classificationStatus: "complete",
+            updatedAt: new Date().toISOString(),
+          };
+          onUpdateEntry(classifiedEntry);
+          await onSaveEntry(classifiedEntry);
+        } else {
+          throw new Error(classifyResult.error || "Classification request failed");
+        }
+      } catch (classifyErr) {
+        console.warn("Classification failed, recording failure status without blocking reflection:", classifyErr);
+        // On failure: save classificationStatus: 'failed' instead, without blocking or clearing the reflection
+        const failedEntry: JournalEntry = {
+          ...finalEntry,
+          classificationStatus: "failed",
+          updatedAt: new Date().toISOString(),
+        };
+        onUpdateEntry(failedEntry);
+        await onSaveEntry(failedEntry);
+      } finally {
+        setIsClassifying(false);
+      }
     } catch (err: any) {
       console.error("Reflection generation error:", err);
       setApiError(err.message || "An unexpected error occurred while communicating with Gemini.");
@@ -260,25 +305,98 @@ export const ReflectionStudio: React.FC<Props> = ({
     }
   };
 
+  // Render colored mood badge next to entry in the UI
+  const getMoodBadge = () => {
+    if (isClassifying || entry.classificationStatus === "pending") {
+      return (
+        <span
+          className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-slate-100 text-slate-600 border border-slate-200 animate-pulse shrink-0"
+          title="Analyzing emotional state with Critic/Classifier Agent..."
+        >
+          <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-ping mr-1.5" />
+          Classifying...
+        </span>
+      );
+    }
+
+    if (entry.classificationStatus === "failed") {
+      return (
+        <span
+          className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-slate-100 text-slate-500 border border-slate-200 shrink-0"
+          title="Mood classification unavailable for this reflection"
+        >
+          <span className="w-1.5 h-1.5 rounded-full bg-slate-400 mr-1.5" />
+          Unclassified
+        </span>
+      );
+    }
+
+    if (!entry.mood) return null;
+
+    const moodLower = entry.mood.toLowerCase();
+    let badgeClass = "bg-sky-50 text-sky-700 border-sky-200";
+    let dotClass = "bg-sky-500";
+    let displayLabel = entry.mood.charAt(0).toUpperCase() + entry.mood.slice(1);
+
+    if (moodLower === "calm") {
+      badgeClass = "bg-emerald-50 text-emerald-700 border-emerald-200";
+      dotClass = "bg-emerald-500";
+      displayLabel = "Calm";
+    } else if (moodLower === "high-stress") {
+      badgeClass = "bg-rose-50 text-rose-700 border-rose-200 shadow-2xs";
+      dotClass = "bg-rose-500 animate-pulse";
+      displayLabel = "High Stress";
+    } else if (moodLower === "stressed") {
+      badgeClass = "bg-amber-50 text-amber-700 border-amber-200";
+      dotClass = "bg-amber-500";
+      displayLabel = "Stressed";
+    } else if (moodLower === "neutral") {
+      badgeClass = "bg-sky-50 text-sky-700 border-sky-200";
+      dotClass = "bg-sky-500";
+      displayLabel = "Neutral";
+    }
+
+    return (
+      <span
+        title={entry.classifierRationale ? `AI Classifier Rationale: ${entry.classifierRationale}` : `Mood: ${displayLabel}`}
+        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-medium border transition-colors shrink-0 cursor-default ${badgeClass}`}
+      >
+        <span className={`w-1.5 h-1.5 rounded-full mr-1.5 ${dotClass}`} />
+        {displayLabel}
+      </span>
+    );
+  };
+
   return (
     <div className="flex-1 flex flex-col h-full bg-white overflow-hidden">
       {/* Top Header & Toolbar */}
       <div className="px-6 py-4 border-b border-slate-200 bg-white/95 backdrop-blur-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         {/* Title Input & Type Badge */}
         <div className="flex-1 min-w-0">
-          <div className="flex items-center space-x-2 mb-1">
+          <div className="flex items-center space-x-2.5 mb-1 flex-wrap gap-y-1">
             <input
               type="text"
               value={entry.title}
               onChange={(e) => handleTitleChange(e.target.value)}
               placeholder="Title your reflection..."
-              className="text-lg font-bold text-slate-900 placeholder-slate-400 bg-transparent border-b border-transparent hover:border-slate-300 focus:border-indigo-500 focus:outline-none transition-colors w-full max-w-md truncate"
+              className="text-lg font-bold text-slate-900 placeholder-slate-400 bg-transparent border-b border-transparent hover:border-slate-300 focus:border-indigo-500 focus:outline-none transition-colors max-w-xs sm:max-w-md truncate"
             />
+            {getMoodBadge()}
           </div>
-          <p className="text-xs text-slate-400 flex items-center space-x-2">
-            <Clock className="w-3 h-3" />
-            <span>Started {new Date(entry.createdAt).toLocaleString()}</span>
-          </p>
+          <div className="flex items-center space-x-2 text-xs text-slate-400 flex-wrap gap-y-0.5">
+            <p className="flex items-center space-x-1.5">
+              <Clock className="w-3 h-3" />
+              <span>Started {new Date(entry.createdAt).toLocaleString()}</span>
+            </p>
+            {entry.classifierRationale && (
+              <span
+                className="text-[11px] text-slate-500 bg-slate-50 border border-slate-200/70 px-2 py-0.5 rounded-md truncate max-w-sm"
+                title={`Classifier Rationale: ${entry.classifierRationale}`}
+              >
+                “{entry.classifierRationale}”
+              </span>
+            )}
+          </div>
         </div>
 
         {/* Studio Controls */}

@@ -193,10 +193,28 @@ export const Sidebar: React.FC<Props> = ({
                 </p>
 
                 <div className="mt-2.5 flex items-center justify-between pt-1 border-t border-slate-100/80">
-                  <div className="flex items-center space-x-1.5">
+                  <div className="flex items-center space-x-1.5 flex-wrap gap-y-1">
                     <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-600">
                       {msgCount} {msgCount === 1 ? "turn" : "turns"}
                     </span>
+                    {entry.mood && (
+                      <span
+                        title={entry.classifierRationale || `Mood: ${entry.mood}`}
+                        className={`px-1.5 py-0.5 rounded text-[10px] font-medium border ${
+                          entry.mood === "high-stress"
+                            ? "bg-rose-50 text-rose-700 border-rose-200"
+                            : entry.mood === "stressed"
+                            ? "bg-amber-50 text-amber-700 border-amber-200"
+                            : entry.mood === "calm"
+                            ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                            : "bg-sky-50 text-sky-700 border-sky-200"
+                        }`}
+                      >
+                        {entry.mood === "high-stress"
+                          ? "High Stress"
+                          : entry.mood.charAt(0).toUpperCase() + entry.mood.slice(1)}
+                      </span>
+                    )}
                     {entry.summary && (
                       <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-purple-50 text-purple-700">
                         Summarized
