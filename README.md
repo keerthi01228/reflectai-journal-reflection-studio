@@ -1,36 +1,60 @@
-# ReflectAI — User-Authenticated Multi-Turn Journal & Gemini Reflection Studio
+# ReflectAI — Multi-Agent Journal & Reflection Studio with Adaptive Companion Intelligence
 
-A production-grade, secure web application combining **Firebase Authentication (Google Sign-In)**, **Google Cloud Firestore (User-Isolated Collections)**, and **Gemini 3.6 Flash API (Resilient Server-Side Fallback Ladder)** for reflective journaling, creative brainstorming, and structured AI summarization.
+A production-grade, secure web application combining **Firebase Authentication (Google Sign-In)**, **Google Cloud Firestore (User-Isolated Collections)**, and a **two-agent Gemini pipeline** for reflective journaling, brainstorming, and emotionally-aware, multilingual conversation — with automatic high-stress alerting to an external channel.
+
+Built on top of the base "Personal Gemini Journal" template for the **Google Cloud Gen AI Academy APAC — Accelerate AI with Cloud Run** challenge, then extended with two original feature layers described below.
 
 ---
 
-## 1. Architecture & Security Specifications
+## 1. What Makes This More Than the Base Template
+
+### Feature 1 — Multi-Agent Reflection Pipeline
+Every journal entry is processed by **two independent Gemini agents**, not one:
+
+- **Agent 1 (Reflector):** generates an empathetic, thoughtful reflection in response to the user's entry.
+- **Agent 2 (Classifier):** reads the entry and Agent 1's reflection, and independently classifies the emotional/stress state into a fixed enum: `calm` | `neutral` | `stressed` | `high-stress`. This classification is treated as trusted, structured output — never freeform text — and is stored alongside the reflection in Firestore.
+
+### Feature 2 — Adaptive Companion Layer (Emotion, Language, Emoji)
+The Reflector agent additionally:
+- Detects the **specific emotion** in the entry (joy, sadness, grief, anxiety, anger, calm, etc.) and matches its tone accordingly (gentle for grief, grounding for anxiety, celebratory for joy).
+- Responds **fluently in whatever language the user wrote in** (tested with English, Hindi, and Tamil), while the Classifier's output always stays a fixed English enum — preserving schema and downstream logic regardless of input language.
+- Uses **at most 1–2 emojis**, chosen only from a small curated set mapped to the detected emotion — never freely generated.
+
+### Feature 3 — Smart Alert Webhook
+When the Classifier detects a **high-stress** entry, the backend automatically and securely notifies a private Discord channel with the mood, AI rationale, and a truncated snippet — framed as a personal check-in nudge, not surveillance. Calm/neutral entries never trigger a notification. The webhook:
+- Runs entirely server-side; the webhook URL is never exposed to the client.
+- Validates the target URL (HTTPS-only, blocks private/internal IP ranges) as an SSRF defense.
+- Is rate-limited (max 10 alerts/hour) to prevent notification flooding.
+- Fails silently (logged, never thrown) so a webhook outage can never block saving the user's reflection.
+
+---
+
+## 2. Architecture & Security Specifications
 
 | Layer | Technology | Security & Isolation Strategy |
 | :--- | :--- | :--- |
 | **Authentication** | Firebase Auth (Google Sign-In) | Federated identity; zero custom password handling; JWT-authenticated sessions. |
-| **Database** | Cloud Firestore | Owner-bound security rules (`/users/{userId}/interactions/{id}`); zero undefined payload stripping. |
-| **AI Intelligence** | Gemini 3.6 Flash (`@google/genai`) | 4-tier model fallback ladder (`gemini-3.6-flash` &rarr; `gemini-3.1-flash-lite` &rarr; `gemini-flash-latest` &rarr; `gemini-3.7-flash`). |
-| **Secret Management** | Google Secret Manager / Env | `GEMINI_API_KEY` secured exclusively on the backend server; zero client exposure. |
-| **Hosting & Ingress** | Google Cloud Run (Containerized) | Full-stack unified Express + Vite server binding on port 3000. |
+| **Database** | Cloud Firestore | Owner-bound security rules (`/users/{userId}/interactions/{id}`); zero-undefined payload stripping before every write. |
+| **AI Intelligence** | Gemini (`@google/genai`) | 4-tier model fallback ladder (`gemini-3.6-flash` → `gemini-3.1-flash-lite` → `gemini-flash-latest` → `gemini-3.7-flash`), with a per-model cooldown circuit breaker so a rate-limited model is skipped on subsequent requests instead of being retried immediately. |
+| **Multi-Agent Isolation** | Agent 1 (Reflector) + Agent 2 (Classifier) | Agent 1's output is passed to Agent 2 strictly as delimited, untrusted data — never as an instruction — per OWASP LLM01 indirect prompt injection defense. |
+| **Secret Management** | Cloud Run environment variables | `GEMINI_API_KEY` and `ALERT_WEBHOOK_URL` are read exclusively server-side via `process.env`; never hardcoded, never sent to the client. |
+| **Hosting & Ingress** | Google Cloud Run (containerized) | Full-stack unified Express + Vite server binding on port `3000`, with the service explicitly deployed using `--port 3000` to match Cloud Run's ingress routing. |
 
 ---
 
-## 2. Agentic Threat Model Summary (5 Threat Zones)
+## 3. Agentic Threat Model Summary
 
-| Threat Zone | Identified Attack Vectors & Risks | Applied Countermeasure & Defense | Verification Status |
+| Threat Zone | Identified Attack Vectors & Risks | Applied Countermeasure & Defense | Status |
 | :--- | :--- | :--- | :--- |
-| **1. Input Surfaces** | Malicious JSON payloads, prompt injection, oversized payload injection. | Explicit Express body parser limits, null-safe destructuring, text sanitization before model & DB sinks. | ✅ Enforced |
-| **2. Planning & Reasoning** | System instruction bypass, toxic/unhelpful generation. | Isolated prompt templates separating user thoughts as plain data; temperature boundaries (0.7 / 0.4). | ✅ Enforced |
-| **3. Tool Execution** | Dynamic code execution, SSRF via backend proxies. | Hardcoded GenAI SDK model dispatchers; strictly bounded `/api/gemini/*` endpoints without arbitrary shell calls. | ✅ Enforced |
-| **4. Memory & State** | Cross-user data leakage, unauthorized document writes/reads. | Enforced Firestore Security Rules checking `request.auth.uid == userId` for every document; undefined stripping. | ✅ Enforced |
-| **5. Inter-System Communication** | Gemini API key exposure in browser, unhandled 429/503 outages. | Server-side only key ingestion; 4-tier model fallback ladder with automatic status code retry. | ✅ Enforced |
+| **Input Surfaces** | Malicious JSON payloads, prompt injection, oversized payloads. | Explicit Express body-parser limits, null-safe destructuring, text sanitization before model & DB sinks. | ✅ Enforced |
+| **Planning & Reasoning** | System instruction bypass; a crafted journal entry attempting to manipulate the Classifier's output. | Agent 1's output and the raw user entry are passed to Agent 2 wrapped in explicit `<<<...>>>` data delimiters and instructed never to be treated as commands. | ✅ Enforced |
+| **Tool Execution** | Dynamic code execution, SSRF via the outbound webhook call. | Webhook destination is validated (HTTPS-only, private/loopback IP ranges blocked) before every send. | ✅ Enforced |
+| **Memory & State** | Cross-user data leakage, unauthorized document reads/writes. | Firestore Security Rules enforce `request.auth.uid == userId` on every document; undefined-value stripping before every write. | ✅ Enforced |
+| **Inter-System Communication** | Gemini API key or webhook URL exposure in the browser; unhandled 429/503 model outages. | Both secrets are read server-side only via environment variables; the 4-tier fallback ladder with a cooldown map absorbs quota/availability errors automatically. | ✅ Enforced |
 
 ---
 
-## 3. Cloud Firestore Security Rules (`firestore.rules`)
-
-The application enforces owner-bound access control so that each authenticated user can read and write **only** their own journal reflections:
+## 4. Cloud Firestore Security Rules (`firestore.rules`)
 
 ```javascript
 rules_version = '2';
@@ -38,7 +62,7 @@ service cloud.firestore {
   match /databases/{database}/documents {
     match /users/{userId} {
       allow read, write: if request.auth != null && request.auth.uid == userId;
-      
+
       match /interactions/{interactionId} {
         allow read, write: if request.auth != null && request.auth.uid == userId;
       }
@@ -47,28 +71,34 @@ service cloud.firestore {
 }
 ```
 
+Each interaction document stores: `userEntry`, `reflectorOutput`, `mood`, `classifierRationale`, `classificationStatus` (`pending` | `complete` | `failed`), `detectedEmotion`, `detectedLanguage`, and a timestamp — all under the same owner-bound path above, so the new fields introduce zero additional attack surface.
+
 ---
 
-## 4. Secret Manager & IAM Configuration
+## 5. Environment Variables & Secret Configuration
 
-### Step 1: Create and Populate `GEMINI_API_KEY` in Google Secret Manager
+The app reads two secrets from the environment at runtime — neither is ever committed to source control (see `.env.example` for the placeholder template).
+
+| Variable | Purpose | Where it's used |
+| :--- | :--- | :--- |
+| `GEMINI_API_KEY` | Authenticates all Gemini API calls (Reflector, Classifier, Summarizer, Prompt Inspiration). | `server.ts`, read via `process.env.GEMINI_API_KEY`. |
+| `ALERT_WEBHOOK_URL` | Discord/Slack webhook endpoint for high-stress alerts. Optional — if unset, alerts are skipped silently, never blocking a save. | `server.ts`, read via `process.env.ALERT_WEBHOOK_URL`. |
+
+### Setting secrets on Cloud Run
 ```bash
-# Enable Google Cloud Secret Manager API
-gcloud services enable secretmanager.googleapis.com
-
-# Create the secret
-gcloud secrets create GEMINI_API_KEY --replication-policy="automatic"
-
-# Add your Gemini API key version
-echo -n "YOUR_GEMINI_API_KEY" | gcloud secrets versions add GEMINI_API_KEY --data-file=-
+gcloud run services update <SERVICE_NAME> \
+  --region <REGION> \
+  --set-env-vars GEMINI_API_KEY="YOUR_GEMINI_API_KEY",ALERT_WEBHOOK_URL="YOUR_WEBHOOK_URL"
 ```
 
-### Step 2: Grant Secret Accessor IAM Role to the Cloud Run Service Account
+### (Alternative, more production-hardened) Google Secret Manager path
 ```bash
-# Retrieve your project number
-export PROJECT_NUMBER=$(gcloud projects describe $(gcloud config get-value project) --format="value(projectNumber)")
+gcloud services enable secretmanager.googleapis.com
 
-# Grant Secret Accessor role to the default Compute / Cloud Run service account
+gcloud secrets create GEMINI_API_KEY --replication-policy="automatic"
+echo -n "YOUR_GEMINI_API_KEY" | gcloud secrets versions add GEMINI_API_KEY --data-file=-
+
+export PROJECT_NUMBER=$(gcloud projects describe $(gcloud config get-value project) --format="value(projectNumber)")
 gcloud secrets add-iam-policy-binding GEMINI_API_KEY \
   --member="serviceAccount:${PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
   --role="roles/secretmanager.secretAccessor"
@@ -76,64 +106,75 @@ gcloud secrets add-iam-policy-binding GEMINI_API_KEY \
 
 ---
 
-## 5. Cloud Run Deployment Flow
+## 6. Cloud Run Deployment Flow
 
-### Step 1: Build & Deploy to Cloud Run with Secret Ingestion
+> **Important:** `server.ts` listens on a fixed port `3000`. When deploying with `gcloud run deploy`, you must explicitly pass `--port 3000` so Cloud Run routes ingress traffic correctly — without it, the container will fail its startup health check.
+
+### Step 1 — Build the container image
 ```bash
-# Enable Cloud Run and Artifact Registry APIs
-gcloud services enable run.googleapis.com artifactregistry.googleapis.com
+gcloud builds submit --pack image=gcr.io/<PROJECT_ID>/<SERVICE_NAME>
+```
 
-# Deploy the full-stack container to Cloud Run
-gcloud run deploy reflect-ai-journal \
-  --source . \
-  --platform managed \
-  --region us-central1 \
+### Step 2 — Deploy to Cloud Run
+```bash
+gcloud run deploy <SERVICE_NAME> \
+  --image gcr.io/<PROJECT_ID>/<SERVICE_NAME> \
+  --region <REGION> \
   --allow-unauthenticated \
-  --port 3000 \
-  --set-secrets="GEMINI_API_KEY=GEMINI_API_KEY:latest"
+  --port 3000
 ```
 
-### Step 2: Apply Mandatory Campaign Label
+### Step 3 — Set environment variables (see Section 5)
+
+### Step 4 — Apply the mandatory campaign label
 ```bash
-# Apply the challenge verification label
-gcloud run services update reflect-ai-journal \
+gcloud run services update <SERVICE_NAME> \
   --update-labels=dev-tutorial=cloud-run-ai-challenge \
-  --region=us-central1
+  --region=<REGION>
 ```
+
+### Step 5 — Wire up Firebase Authentication for the new domain
+Once deployed, add the Cloud Run service URL to all three of the following, so Google Sign-In works on the live domain:
+1. **Firebase Console → Authentication → Settings → Authorized domains** — add the bare domain (no `https://`, no trailing slash).
+2. **Google Cloud Console → APIs & Services → Credentials → OAuth 2.0 Client → Authorized JavaScript origins** — add the full origin (`https://your-service-url`).
+3. *(Optional)* If restricting your Firebase browser API key by website, add the origin with a trailing `/*` wildcard under **Website restrictions**.
 
 ---
 
-## 6. Local Development & Testing
+## 7. Local Development & Testing
 
-1. **Install Dependencies**:
-   ```bash
+1. **Install dependencies**
+```bash
    npm install
-   ```
-
-2. **Configure Environment Variables**:
-   Ensure `.env` contains your `GEMINI_API_KEY`:
-   ```env
-   GEMINI_API_KEY="AIzaSy..."
-   ```
-
-3. **Start Development Server**:
-   ```bash
+```
+2. **Configure environment variables** — create `.env` from `.env.example` and fill in `GEMINI_API_KEY` (and optionally `ALERT_WEBHOOK_URL`).
+3. **Start the development server**
+```bash
    npm run dev
-   ```
-   The full-stack application will boot at `http://localhost:3000`.
-
-4. **Production Build & Verification**:
-   ```bash
+```
+   The full-stack app boots at `http://localhost:3000`.
+4. **Production build & local verification**
+```bash
    npm run build
    npm start
-   ```
+```
 
 ---
 
-## 7. Functional Verification Checklist
+## 8. Functional Verification Checklist
 
-- [x] **Google Sign-In**: Authenticates users without saving passwords, securely populating user profiles.
-- [x] **Multi-Turn Reflective Dialogue**: Converses with Gemini 3.6 Flash with conversational memory and rich markdown rendering.
-- [x] **AI Summarization**: Generates essence, core themes, key takeaways, and growth steps via `/api/gemini/summarize`.
-- [x] **Isolated Firestore Storage**: Real-time synchronization to `/users/{userId}/interactions/{id}` with zero undefined property errors.
-- [x] **History Management & Export**: Search, category filters, deletion with confirmation, and Markdown/JSON export.
+- [x] **Google Sign-In** — authenticates users without ever handling passwords.
+- [x] **Multi-turn reflective dialogue** — conversational memory, markdown rendering, emotion- and language-adaptive tone.
+- [x] **Multi-agent classification** — every entry is independently tagged `calm` / `neutral` / `stressed` / `high-stress`, with a stored rationale.
+- [x] **Smart alert webhook** — fires exactly once per high-stress entry, rate-limited, fails silently on error.
+- [x] **Isolated Firestore storage** — real-time sync to `/users/{userId}/interactions/{id}`, zero cross-user leakage.
+- [x] **Resilient Gemini fallback ladder** — verified live under real `429`/`503` upstream errors; automatically retries the next model without surfacing an error to the user.
+- [x] **History management & export** — search, filter, deletion with confirmation, Markdown/JSON export.
+
+---
+
+## 9. Live Deployment
+
+- **Live app:** `https://reflectai-reflection-studio-v2-938456706251.asia-southeast1.run.app`
+- **Cloud Run service:** `reflectai-reflection-studio-v2` (region: `asia-southeast1`)
+- **Firebase / GCP project:** `genai-academy-t1`
