@@ -21,6 +21,8 @@ export interface JournalEntry {
   classificationStatus?: 'pending' | 'complete' | 'failed';
   userEntry?: string;
   reflectorOutput?: string;
+  detectedEmotion?: string;
+  detectedLanguage?: string;
   createdAt: string;
   updatedAt: string;
 }

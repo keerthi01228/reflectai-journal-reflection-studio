@@ -215,6 +215,14 @@ export const Sidebar: React.FC<Props> = ({
                           : entry.mood.charAt(0).toUpperCase() + entry.mood.slice(1)}
                       </span>
                     )}
+                    {entry.detectedEmotion && (
+                      <span
+                        title={`Detected Emotion: ${entry.detectedEmotion}`}
+                        className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-indigo-50 text-indigo-700 border border-indigo-200 capitalize"
+                      >
+                        {entry.detectedEmotion}
+                      </span>
+                    )}
                     {entry.summary && (
                       <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-purple-50 text-purple-700">
                         Summarized

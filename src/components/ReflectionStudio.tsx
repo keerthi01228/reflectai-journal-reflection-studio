@@ -166,6 +166,8 @@ export const ReflectionStudio: React.FC<Props> = ({
         messages: [...updatedMessages, geminiMessage],
         userEntry: userMessageText,
         reflectorOutput: result.reflection,
+        detectedEmotion: result.detectedEmotion || undefined,
+        detectedLanguage: result.detectedLanguage || undefined,
         classificationStatus: "pending",
         updatedAt: new Date().toISOString(),
       };
@@ -173,12 +175,23 @@ export const ReflectionStudio: React.FC<Props> = ({
       onUpdateEntry(finalEntry);
       setInputText("");
 
-      // Guaranteed Persistence of reflection to Firestore (Source of Truth)
-      await onSaveEntry(finalEntry);
+      // Step 1: Save reflection state to Firestore in background without blocking Agent 2
+      console.log("[Multi-Agent Pipeline] Agent 1 (Reflector) completed. Persisting initial entry to Firestore...");
+      const initialSavePromise = onSaveEntry(finalEntry).catch((saveErr) => {
+        console.error("[Multi-Agent Pipeline] Initial Firestore save encountered error:", saveErr);
+        return null;
+      });
 
-      // Multi-Agent Pipeline: Immediately invoke Agent 2 (Critic/Classifier)
+      // Step 2: Immediately invoke Agent 2 (Critic/Classifier)
+      console.log("[Multi-Agent Pipeline] Entering Agent 2 (Classifier) stage...");
+      console.log("[Multi-Agent Pipeline] Payload preview:", {
+        userEntrySnippet: userMessageText.slice(0, 60),
+        reflectorOutputSnippet: result.reflection ? result.reflection.slice(0, 60) : "",
+      });
+
       setIsClassifying(true);
       try {
+        console.log("[Multi-Agent Pipeline] Initiating POST /api/gemini/classify fetch call...");
         const classifyResponse = await fetch("/api/gemini/classify", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -188,9 +201,12 @@ export const ReflectionStudio: React.FC<Props> = ({
           }),
         });
 
+        console.log("[Multi-Agent Pipeline] POST /api/gemini/classify responded with HTTP status:", classifyResponse.status);
         const classifyResult = await classifyResponse.json();
+        console.log("[Multi-Agent Pipeline] /api/gemini/classify payload received:", classifyResult);
 
         if (classifyResponse.ok && classifyResult.success && classifyResult.mood) {
+          console.log("[Multi-Agent Pipeline] Classification successful. Updating entry with mood:", classifyResult.mood);
           const classifiedEntry: JournalEntry = {
             ...finalEntry,
             mood: classifyResult.mood,
@@ -199,12 +215,15 @@ export const ReflectionStudio: React.FC<Props> = ({
             updatedAt: new Date().toISOString(),
           };
           onUpdateEntry(classifiedEntry);
-          await onSaveEntry(classifiedEntry);
+          await onSaveEntry(classifiedEntry).catch((saveErr) => {
+            console.error("[Multi-Agent Pipeline] Error saving classified entry to Firestore:", saveErr);
+          });
+          console.log("[Multi-Agent Pipeline] Classified entry saved to Firestore.");
         } else {
-          throw new Error(classifyResult.error || "Classification request failed");
+          throw new Error(classifyResult.error || `Classification failed with status ${classifyResponse.status}`);
         }
       } catch (classifyErr) {
-        console.warn("Classification failed, recording failure status without blocking reflection:", classifyErr);
+        console.error("[Multi-Agent Pipeline] Error during Agent 2 execution:", classifyErr);
         // On failure: save classificationStatus: 'failed' instead, without blocking or clearing the reflection
         const failedEntry: JournalEntry = {
           ...finalEntry,
@@ -212,10 +231,16 @@ export const ReflectionStudio: React.FC<Props> = ({
           updatedAt: new Date().toISOString(),
         };
         onUpdateEntry(failedEntry);
-        await onSaveEntry(failedEntry);
+        await onSaveEntry(failedEntry).catch((saveErr) => {
+          console.error("[Multi-Agent Pipeline] Error saving failed entry state to Firestore:", saveErr);
+        });
       } finally {
         setIsClassifying(false);
+        console.log("[Multi-Agent Pipeline] Agent 2 stage finalized (isClassifying = false).");
       }
+
+      // Ensure the initial save settled before exiting handler
+      await initialSavePromise;
     } catch (err: any) {
       console.error("Reflection generation error:", err);
       setApiError(err.message || "An unexpected error occurred while communicating with Gemini.");
@@ -388,6 +413,22 @@ export const ReflectionStudio: React.FC<Props> = ({
               <Clock className="w-3 h-3" />
               <span>Started {new Date(entry.createdAt).toLocaleString()}</span>
             </p>
+            {entry.detectedEmotion && (
+              <span
+                className="text-[11px] font-medium text-indigo-700 bg-indigo-50 border border-indigo-200/70 px-2 py-0.5 rounded-md capitalize shrink-0"
+                title={`Detected Emotion: ${entry.detectedEmotion}`}
+              >
+                Emotion: {entry.detectedEmotion}
+              </span>
+            )}
+            {entry.detectedLanguage && entry.detectedLanguage.toLowerCase() !== "english" && (
+              <span
+                className="text-[11px] font-medium text-slate-700 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-md shrink-0"
+                title={`Detected Language: ${entry.detectedLanguage}`}
+              >
+                Language: {entry.detectedLanguage}
+              </span>
+            )}
             {entry.classifierRationale && (
               <span
                 className="text-[11px] text-slate-500 bg-slate-50 border border-slate-200/70 px-2 py-0.5 rounded-md truncate max-w-sm"
