@@ -1,5 +1,16 @@
 import React from "react";
-import { ShieldCheck, X, AlertTriangle, Lock, Cpu, Database, Network } from "lucide-react";
+import {
+  ShieldCheck,
+  X,
+  AlertTriangle,
+  Lock,
+  Cpu,
+  Database,
+  Network,
+  Workflow,
+  Bell,
+  Languages,
+} from "lucide-react";
 import { ThreatModelItem } from "../types";
 
 interface Props {
@@ -43,6 +54,27 @@ const threatData: (ThreatModelItem & { icon: any })[] = [
     status: "Enforced",
     icon: Network,
   },
+  {
+    zone: "6. Multi-Agent Data Flow",
+    risk: "Agent 1's (Reflector) output being used to manipulate Agent 2 (Classifier) via indirect prompt injection, or a crafted journal entry attempting to force a false classification.",
+    mitigation: "Agent 1's output and the raw user entry are passed to Agent 2 wrapped in explicit <<<...>>> data delimiters and treated strictly as untrusted data, never as instructions; the Classifier's output is schema-enforced to a fixed enum, never freeform text.",
+    status: "Enforced",
+    icon: Workflow,
+  },
+  {
+    zone: "7. External Webhook Integration",
+    risk: "Webhook URL exposure to the client, SSRF via the outbound alert call, notification flooding/abuse.",
+    mitigation: "The webhook URL is read server-side only via environment variables and never sent to the client; outbound requests are validated to be HTTPS-only and block private/loopback IP ranges; alerts are rate-limited to a maximum of 10 per hour.",
+    status: "Enforced",
+    icon: Bell,
+  },
+  {
+    zone: "8. Adaptive Companion Layer (Language & Emotion Detection)",
+    risk: "A user attempting to override the Reflector's safety tone or curated emoji constraints via crafted input in a specific language; ambiguous or mixed-language input producing garbled or unsafe output.",
+    mitigation: "The Reflector strictly enforces a curated emoji whitelist and defaults cleanly to English on ambiguous language detection; the Classifier's mood output always remains a fixed English enum regardless of detected input language, preserving schema integrity.",
+    status: "Enforced",
+    icon: Languages,
+  },
 ];
 
 export const ThreatModelModal: React.FC<Props> = ({ isOpen, onClose }) => {
@@ -62,7 +94,7 @@ export const ThreatModelModal: React.FC<Props> = ({ isOpen, onClose }) => {
                 Agentic Threat Modeling & Security Review
               </h2>
               <p className="text-xs text-slate-500">
-                Mandatory 5-Zone Threat Analysis &amp; OWASP Countermeasures
+                Comprehensive 8-Zone Threat Analysis &amp; OWASP Countermeasures
               </p>
             </div>
           </div>
