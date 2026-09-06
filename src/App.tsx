@@ -4,6 +4,7 @@ import {
   signInWithGoogle,
   logOut,
   onAuthStateChanged,
+  getIdTokenResult,
   type User,
 } from "./lib/firebase";
 import {
@@ -18,10 +19,13 @@ import { Sidebar } from "./components/Sidebar";
 import { ReflectionStudio } from "./components/ReflectionStudio";
 import { ThreatModelModal } from "./components/ThreatModelModal";
 import { WalkthroughGuideModal } from "./components/WalkthroughGuideModal";
+import { AdminStatsModal } from "./components/AdminStatsModal";
 import { Menu, X, PlusCircle } from "lucide-react";
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
   const [authLoading, setAuthLoading] = useState(true);
   const [authError, setAuthError] = useState<string | null>(null);
 
@@ -44,7 +48,7 @@ export default function App() {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(
       auth,
-      (user: User | null) => {
+      async (user: User | null) => {
         if (user) {
           setCurrentUser({
             uid: user.uid,
@@ -53,8 +57,18 @@ export default function App() {
             photoURL: user.photoURL,
           });
           setAuthError(null);
+
+          // Directive 12: Verify custom claim role == 'admin' via getIdTokenResult()
+          try {
+            const tokenResult = await getIdTokenResult(user);
+            setIsAdmin(tokenResult.claims?.role === "admin");
+          } catch (tokenErr) {
+            console.warn("Could not retrieve custom claims for user:", tokenErr);
+            setIsAdmin(false);
+          }
         } else {
           setCurrentUser(null);
+          setIsAdmin(false);
           setEntries([]);
           setActiveEntry(null);
         }
@@ -198,6 +212,8 @@ export default function App() {
       {/* Navigation Header */}
       <Navbar
         user={currentUser}
+        isAdmin={isAdmin}
+        onOpenAdminStats={() => setIsAdminModalOpen(true)}
         onSignOut={handleSignOut}
         onOpenThreatModel={() => setIsThreatModalOpen(true)}
         onOpenWalkthrough={() => setIsWalkthroughOpen(true)}
@@ -299,6 +315,14 @@ export default function App() {
         isOpen={isWalkthroughOpen}
         onClose={() => setIsWalkthroughOpen(false)}
       />
+
+      {/* Admin Aggregate Telemetry Modal (Directive 12: Admin only) */}
+      {isAdmin && (
+        <AdminStatsModal
+          isOpen={isAdminModalOpen}
+          onClose={() => setIsAdminModalOpen(false)}
+        />
+      )}
     </div>
   );
 }

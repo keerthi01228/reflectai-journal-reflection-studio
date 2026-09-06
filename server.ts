@@ -1,5 +1,6 @@
 import express, { Request, Response } from "express";
 import path from "path";
+import fs from "fs";
 import dotenv from "dotenv";
 import { GoogleGenAI } from "@google/genai";
 import { createServer as createViteServer } from "vite";
@@ -510,6 +511,101 @@ async function sendAlertWebhook(payload: {
   }
 }
 
+/**
+ * Loads Firebase configuration dynamically for server-side operations
+ */
+let cachedFirebaseConfig: any = null;
+function getFirebaseServerConfig() {
+  if (!cachedFirebaseConfig) {
+    try {
+      const configPath = path.resolve(process.cwd(), "firebase-applet-config.json");
+      if (fs.existsSync(configPath)) {
+        cachedFirebaseConfig = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+      }
+    } catch (err) {
+      console.warn("Could not read firebase-applet-config.json on server:", err);
+    }
+  }
+  return cachedFirebaseConfig;
+}
+
+/**
+ * Increments aggregate statistics at /stats/aggregate in Cloud Firestore
+ * Complies with Directive 12:
+ * - totalEntries: incremented by 1 every time an entry is classified
+ * - totalHighStress: incremented by 1 only when mood is "high-stress"
+ * - Best-effort & Non-blocking: try/catch wraps entire operation, never throws or blocks callers
+ */
+async function updateAggregateStats(isHighStress: boolean): Promise<void> {
+  try {
+    const config = getFirebaseServerConfig();
+    const projectId = config?.projectId || process.env.FIREBASE_PROJECT_ID || process.env.GOOGLE_CLOUD_PROJECT;
+    const databaseId = config?.firestoreDatabaseId || "(default)";
+    const apiKey = config?.apiKey || process.env.FIREBASE_API_KEY;
+
+    if (!projectId) {
+      console.warn("Aggregate Stats: No projectId found. Skipping counter increment.");
+      return;
+    }
+
+    const firestoreUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${databaseId}/documents:commit${apiKey ? `?key=${apiKey}` : ""}`;
+    const docName = `projects/${projectId}/databases/${databaseId}/documents/stats/aggregate`;
+
+    const transforms: any[] = [
+      {
+        fieldPath: "totalEntries",
+        increment: { integerValue: "1" },
+      },
+      {
+        fieldPath: "lastUpdated",
+        setToServerValue: "REQUEST_TIME",
+      },
+    ];
+
+    if (isHighStress) {
+      transforms.push({
+        fieldPath: "totalHighStress",
+        increment: { integerValue: "1" },
+      });
+    }
+
+    const commitPayload = {
+      writes: [
+        {
+          transform: {
+            document: docName,
+            fieldTransforms: transforms,
+          },
+        },
+      ],
+    };
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 6000);
+
+    const response = await fetch(firestoreUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(commitPayload),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeout);
+
+    if (!response.ok) {
+      const errText = await response.text().catch(() => "");
+      console.warn(`Aggregate stats commit returned status ${response.status}: ${errText.slice(0, 200)}`);
+    } else {
+      console.log(`[Directive 12] Aggregate stats successfully incremented (totalEntries +1${isHighStress ? ", totalHighStress +1" : ""}).`);
+    }
+  } catch (err: any) {
+    // Directive 12: Must never throw or block classify endpoint
+    console.warn("Best-effort aggregate stats update encountered non-fatal error:", err?.message || err);
+  }
+}
+
 // Allowed mood classification values
 const VALID_MOODS = ["calm", "neutral", "stressed", "high-stress"] as const;
 type ValidMood = (typeof VALID_MOODS)[number];
@@ -609,6 +705,12 @@ Return a JSON object matching this schema exactly:
         console.warn("Background webhook execution caught error:", webhookErr);
       });
     }
+
+    // Directive 12: Best-effort increment of aggregate counts at /stats/aggregate
+    // Non-blocking: will never throw or prevent returning the classify response
+    updateAggregateStats(validatedMood === "high-stress").catch((statsErr) => {
+      console.warn("Background aggregate stats update caught error:", statsErr);
+    });
 
     res.json({
       success: true,

@@ -6,6 +6,7 @@ import {
   signInWithRedirect,
   signOut,
   onAuthStateChanged,
+  getIdTokenResult,
   User,
 } from "firebase/auth";
 import { getFirestore, Firestore } from "firebase/firestore";
@@ -66,4 +67,4 @@ export async function logOut(): Promise<void> {
   await signOut(auth);
 }
 
-export { onAuthStateChanged, type User };
+export { onAuthStateChanged, getIdTokenResult, type User };

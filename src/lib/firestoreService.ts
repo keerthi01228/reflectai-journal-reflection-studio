@@ -1,6 +1,7 @@
 import {
   collection,
   doc,
+  getDoc,
   setDoc,
   deleteDoc,
   onSnapshot,
@@ -9,7 +10,7 @@ import {
   Unsubscribe,
 } from "firebase/firestore";
 import { db, sanitizeForFirestore } from "./firebase";
-import { JournalEntry } from "../types";
+import { JournalEntry, AggregateStats } from "../types";
 
 /**
  * Saves or updates a journal interaction document in the user's isolated subcollection:
@@ -90,3 +91,64 @@ export function subscribeUserInteractions(
     return () => {};
   }
 }
+
+/**
+ * Fetches admin aggregate statistics from /stats/aggregate.
+ * Allowed only for users with custom claim role == 'admin'.
+ */
+export async function fetchAggregateStats(): Promise<AggregateStats> {
+  const statsDocRef = doc(db, "stats", "aggregate");
+  const docSnap = await getDoc(statsDocRef);
+
+  if (docSnap.exists()) {
+    const data = docSnap.data();
+    return {
+      totalEntries: Number(data.totalEntries || 0),
+      totalHighStress: Number(data.totalHighStress || 0),
+      lastUpdated: data.lastUpdated,
+    };
+  }
+
+  return {
+    totalEntries: 0,
+    totalHighStress: 0,
+  };
+}
+
+/**
+ * Subscribes to real-time updates for /stats/aggregate (Admin only).
+ */
+export function subscribeAggregateStats(
+  onUpdate: (stats: AggregateStats) => void,
+  onError: (error: Error) => void
+): Unsubscribe {
+  try {
+    const statsDocRef = doc(db, "stats", "aggregate");
+    return onSnapshot(
+      statsDocRef,
+      (docSnap) => {
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          onUpdate({
+            totalEntries: Number(data.totalEntries || 0),
+            totalHighStress: Number(data.totalHighStress || 0),
+            lastUpdated: data.lastUpdated,
+          });
+        } else {
+          onUpdate({
+            totalEntries: 0,
+            totalHighStress: 0,
+          });
+        }
+      },
+      (error) => {
+        console.error("Aggregate stats subscription error:", error);
+        onError(error);
+      }
+    );
+  } catch (err: any) {
+    onError(err);
+    return () => {};
+  }
+}
+

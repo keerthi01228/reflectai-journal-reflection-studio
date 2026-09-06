@@ -10,6 +10,7 @@ import {
   Workflow,
   Bell,
   Languages,
+  BarChart3,
 } from "lucide-react";
 import { ThreatModelItem } from "../types";
 
@@ -75,6 +76,13 @@ const threatData: (ThreatModelItem & { icon: any })[] = [
     status: "Enforced",
     icon: Languages,
   },
+  {
+    zone: "9. Role-Based Access Control & Admin Aggregate Telemetry",
+    risk: "Privilege escalation by non-admin users attempting to read or tamper with /stats/aggregate, or accidental exposure of user-identifiable reflection content in global metrics.",
+    mitigation: "Firestore Security Rules enforce request.auth.token.role == 'admin' for read access to /stats/aggregate and deny all client writes (write: if false); the document stores only numerical counters and timestamps with zero user texts, identities, or per-user breakdown; counter updates are executed server-side only in a non-blocking try/catch block.",
+    status: "Enforced",
+    icon: BarChart3,
+  },
 ];
 
 export const ThreatModelModal: React.FC<Props> = ({ isOpen, onClose }) => {
@@ -94,7 +102,7 @@ export const ThreatModelModal: React.FC<Props> = ({ isOpen, onClose }) => {
                 Agentic Threat Modeling & Security Review
               </h2>
               <p className="text-xs text-slate-500">
-                Comprehensive 8-Zone Threat Analysis &amp; OWASP Countermeasures
+                Comprehensive 9-Zone Threat Analysis &amp; OWASP Countermeasures
               </p>
             </div>
           </div>

@@ -65,6 +65,19 @@ export const WalkthroughGuideModal: React.FC<Props> = ({ isOpen, onClose }) => {
         "Click 'Delete' on an entry, confirm the deletion modal, and verify it is permanently removed from Firestore.",
       ],
       expected: "Real-time snapshot listener updates sidebar list seamlessly; document is removed from user's isolated path."
+    },
+    {
+      id: "TC-06",
+      title: "RBAC Admin Aggregate Telemetry (Directive 12)",
+      description: "Ensure only users with custom claim role == 'admin' can view global aggregate counters, preserving user journal isolation.",
+      steps: [
+        "Authenticate with an account lacking the 'role: admin' custom claim; confirm 'Admin Stats' button is completely hidden from UI.",
+        "Attempt direct client-side read of /stats/aggregate; confirm Firestore Security Rules deny access.",
+        "Authenticate with an admin account; click the 'Admin Stats' button in the navigation header.",
+        "Submit a reflection and verify /stats/aggregate counter increments (totalEntries +1, totalHighStress +1 if high-stress).",
+        "Confirm no individual user texts, names, or per-user breakdown documents are stored or exposed in /stats/aggregate."
+      ],
+      expected: "Read allowed solely for token.role == 'admin'; zero user-identifiable data exposed; entry saving remains 100% resilient."
     }
   ];
 

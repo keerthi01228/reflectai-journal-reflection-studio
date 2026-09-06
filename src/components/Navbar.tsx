@@ -1,9 +1,11 @@
 import React from "react";
-import { Sparkles, LogOut, Shield, Database, ListChecks, CheckCircle2, User as UserIcon } from "lucide-react";
+import { Sparkles, LogOut, Shield, Database, ListChecks, CheckCircle2, User as UserIcon, BarChart3 } from "lucide-react";
 import { UserProfile } from "../types";
 
 interface Props {
   user: UserProfile | null;
+  isAdmin?: boolean;
+  onOpenAdminStats?: () => void;
   onSignOut: () => void;
   onOpenThreatModel: () => void;
   onOpenWalkthrough: () => void;
@@ -13,6 +15,8 @@ interface Props {
 
 export const Navbar: React.FC<Props> = ({
   user,
+  isAdmin = false,
+  onOpenAdminStats,
   onSignOut,
   onOpenThreatModel,
   onOpenWalkthrough,
@@ -63,6 +67,18 @@ export const Navbar: React.FC<Props> = ({
             <ListChecks className="w-3.5 h-3.5 text-indigo-600" />
             <span className="hidden md:inline">Walkthrough</span>
           </button>
+
+          {/* Conditional Admin Stats CTA (Directive 12: RBAC only if role == 'admin') */}
+          {user && isAdmin && (
+            <button
+              onClick={onOpenAdminStats}
+              title="Open Admin Aggregate Telemetry"
+              className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 transition-colors border border-indigo-200 shadow-2xs"
+            >
+              <BarChart3 className="w-3.5 h-3.5 text-indigo-600" />
+              <span className="hidden sm:inline">Admin Stats</span>
+            </button>
+          )}
 
           {/* Sync Status Badge */}
           {user && (

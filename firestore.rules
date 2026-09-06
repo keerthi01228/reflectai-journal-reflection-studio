@@ -9,5 +9,13 @@ service cloud.firestore {
         allow read, write: if request.auth != null && request.auth.uid == userId;
       }
     }
+
+    // RBAC: Admin aggregate statistics (Directive 12)
+    // Only accessible if user possesses the custom claim role == 'admin'
+    match /stats/aggregate {
+      allow read: if request.auth != null && request.auth.token.role == 'admin';
+      allow write: if false; // Writes are performed server-side only
+    }
   }
 }
+

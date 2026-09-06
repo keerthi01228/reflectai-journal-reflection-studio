@@ -34,6 +34,12 @@ export interface UserProfile {
   photoURL: string | null;
 }
 
+export interface AggregateStats {
+  totalEntries: number;
+  totalHighStress: number;
+  lastUpdated?: string;
+}
+
 export interface ThreatModelItem {
   zone: string;
   risk: string;
