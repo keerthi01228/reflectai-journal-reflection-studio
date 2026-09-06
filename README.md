@@ -1,5 +1,7 @@
 # ReflectAI — Multi-Agent Journal & Reflection Studio with Adaptive Companion Intelligence
 
+🔗 **[Live Demo](https://reflectai-reflection-studio-v2-938456706251.asia-southeast1.run.app)** 
+
 A production-grade, secure web application combining **Firebase Authentication (Google Sign-In)**, **Google Cloud Firestore (User-Isolated Collections)**, and a **two-agent Gemini pipeline** for reflective journaling, brainstorming, and emotionally-aware, multilingual conversation — with automatic high-stress alerting to an external channel.
 
 Built on top of the base "Personal Gemini Journal" template for the **Google Cloud Gen AI Academy APAC — Accelerate AI with Cloud Run** challenge, then extended with two original feature layers described below.
@@ -175,6 +177,6 @@ Once deployed, add the Cloud Run service URL to all three of the following, so G
 
 ## 9. Live Deployment
 
-- **Live app:** `https://reflectai-reflection-studio-v2-938456706251.asia-southeast1.run.app`
+-    - **Live app:** [https://reflectai-reflection-studio-v2-938456706251.asia-southeast1.run.app](https://reflectai-reflection-studio-v2-938456706251.asia-southeast1.run.app)
 - **Cloud Run service:** `reflectai-reflection-studio-v2` (region: `asia-southeast1`)
 - **Firebase / GCP project:** `genai-academy-t1`
