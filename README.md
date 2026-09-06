@@ -29,6 +29,14 @@ When the Classifier detects a **high-stress** entry, the backend automatically a
 - Is rate-limited (max 10 alerts/hour) to prevent notification flooding.
 - Fails silently (logged, never thrown) so a webhook outage can never block saving the user's reflection.
 
+### Feature 4 — Role-Based Access Control (Admin Aggregate Stats)
+Beyond per-user data isolation, the app implements genuine RBAC — distinct *roles* with distinct *permissions*, not just ownership-based access:
+- A user carrying the Firebase custom claim `role: "admin"` can view a read-only **aggregate stats panel**: total entries and total high-stress entries across *all* users, system-wide.
+- This view exposes **zero individual content, identity, or per-user breakdown** — only two global counters.
+- Enforced at the database layer: Firestore Security Rules deny read access to `/stats/aggregate` to anyone without the `admin` custom claim, including the document owner concept not applying here at all — this is a global, not per-user, resource.
+- Aggregate counters are incremented server-side, non-blocking, and fail silently on error — a counter update can never block or delay a user's actual journal save.
+- Regular users see no trace of this feature in the UI; only an account explicitly granted the claim (via the Firebase Admin SDK, a one-time server-side operation) sees the Admin Stats badge at all.
+
 ---
 
 ## 2. Architecture & Security Specifications
@@ -53,6 +61,7 @@ When the Classifier detects a **high-stress** entry, the backend automatically a
 | **Tool Execution** | Dynamic code execution, SSRF via the outbound webhook call. | Webhook destination is validated (HTTPS-only, private/loopback IP ranges blocked) before every send. | ✅ Enforced |
 | **Memory & State** | Cross-user data leakage, unauthorized document reads/writes. | Firestore Security Rules enforce `request.auth.uid == userId` on every document; undefined-value stripping before every write. | ✅ Enforced |
 | **Inter-System Communication** | Gemini API key or webhook URL exposure in the browser; unhandled 429/503 model outages. | Both secrets are read server-side only via environment variables; the 4-tier fallback ladder with a cooldown map absorbs quota/availability errors automatically. | ✅ Enforced |
+| **Role-Based Access Control** | Privilege escalation (a non-admin user attempting to read `/stats/aggregate` directly, or spoofing the role claim client-side); aggregate data leaking individual user identity. | Firestore Security Rules check `request.auth.token.role == "admin"` server-side on every read; the aggregate document stores only global counters, never per-user or content data; the claim is set exclusively via the Firebase Admin SDK, never client-writable. | ✅ Enforced |
 
 ---
 
@@ -69,13 +78,15 @@ service cloud.firestore {
         allow read, write: if request.auth != null && request.auth.uid == userId;
       }
     }
+
+    // Admin-only aggregate stats — RBAC enforced via custom claim, not ownership
+    match /stats/aggregate {
+      allow read: if request.auth != null && request.auth.token.role == "admin";
+      allow write: if false; // writes only ever happen server-side via the Admin SDK
+    }
   }
 }
 ```
-
-Each interaction document stores: `userEntry`, `reflectorOutput`, `mood`, `classifierRationale`, `classificationStatus` (`pending` | `complete` | `failed`), `detectedEmotion`, `detectedLanguage`, and a timestamp — all under the same owner-bound path above, so the new fields introduce zero additional attack surface.
-
----
 
 ## 5. Environment Variables & Secret Configuration
 
@@ -172,7 +183,7 @@ Once deployed, add the Cloud Run service URL to all three of the following, so G
 - [x] **Isolated Firestore storage** — real-time sync to `/users/{userId}/interactions/{id}`, zero cross-user leakage.
 - [x] **Resilient Gemini fallback ladder** — verified live under real `429`/`503` upstream errors; automatically retries the next model without surfacing an error to the user.
 - [x] **History management & export** — search, filter, deletion with confirmation, Markdown/JSON export.
-
+- [x] **Role-Based Access Control** — admin-only aggregate stats, enforced by Firestore rules checking a custom claim; verified invisible to non-admin accounts.
 ---
 
 ## 9. Live Deployment
